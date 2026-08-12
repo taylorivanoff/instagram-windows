@@ -1,0 +1,23 @@
+{
+  "name": "instagram-windows",
+  "description": "Instagram desktop app for Windows (Tauri / WebView2).",
+  "author": {
+    "name": "Taylor Ivanoff"
+  },
+  "version": "1.0.0",
+  "repository": "https://github.com/taylorivanoff/instagram-windows",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-tauri.cjs dev",
+    "start": "node scripts/run-tauri.cjs dev",
+    "build": "node scripts/run-tauri.cjs build",
+    "tauri": "node scripts/run-tauri.cjs",
+    "release": "node scripts/run-tauri.cjs build",
+    "bump": "node scripts/bump-version.cjs",
+    "icon": "node scripts/run-tauri.cjs icon icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

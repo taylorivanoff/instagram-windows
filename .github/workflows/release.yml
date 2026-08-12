@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    if: "!startsWith(github.event.head_commit.message, 'chore: bump version')"
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      ref: ${{ steps.check.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - id: check
+        run: |
+          set -e
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD^ HEAD)
+          else
+            CHANGED=$(git show --pretty="" --name-only HEAD)
+          fi
+
+          NON_README=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            base=$(basename "$file")
+            if [[ ! "$base" =~ ^[Rr][Ee][Aa][Dd][Mm][Ee].*\.[Mm][Dd]$ ]]; then
+              NON_README=1
+              break
+            fi
+          done <<< "$CHANGED"
+
+          if [ -n "$CHANGED" ] && [ -z "$NON_README" ]; then
+            echo "README-only change; skipping version bump and release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+            echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CURRENT=$(jq -r .version package.json)
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            OLD=$(git show HEAD^:package.json | jq -r .version)
+          else
+            OLD=""
+          fi
+
+          if [ -n "$OLD" ] && [ "$OLD" = "$CURRENT" ]; then
+            if git rev-parse --verify "v${CURRENT}" >/dev/null 2>&1; then
+              node scripts/bump-version.cjs patch
+              CURRENT=$(jq -r .version package.json)
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+              for lock in bun.lock src-tauri/Cargo.lock; do
+                if [ -f "$lock" ]; then git add "$lock"; fi
+              done
+              git commit -m "chore: bump version to ${CURRENT}"
+              git push
+              echo "Auto-bumped version to ${CURRENT}"
+            else
+              echo "Using version ${CURRENT} (not yet tagged)"
+            fi
+          else
+            echo "Using version ${CURRENT} (already bumped or initial)"
+          fi
+
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "version=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-and-release:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-version.outputs.ref }}
+          path: instagram-windows
+          fetch-depth: 0
+      - name: Checkout tauri-tray-base
+        uses: actions/checkout@v4
+        with:
+          repository: taylorivanoff/tauri-tray-base
+          path: tauri-tray-base
+      - name: Generate changelog
+        id: changelog
+        working-directory: instagram-windows
+        shell: bash
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"- %s" -10)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" ${LAST_TAG}..HEAD)
+          fi
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        working-directory: instagram-windows
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          bun install
+          bun run release
+      - name: Generate latest.json
+        working-directory: instagram-windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.check-version.outputs.version }}"
+          EXE=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -n1)
+          SIG_FILE="${EXE}.sig"
+          test -f "$SIG_FILE"
+          BASENAME=$(basename "$EXE")
+          # GitHub Releases rewrites spaces to dots in asset URLs.
+          ASSET_NAME="${BASENAME// /.}"
+          export VERSION
+          export PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          export URL="https://github.com/taylorivanoff/instagram-windows/releases/download/v${VERSION}/${ASSET_NAME}"
+          export SIGNATURE=$(tr -d '\r\n' < "$SIG_FILE")
+          bun -e "
+            const fs = require('fs');
+            const out = {
+              version: process.env.VERSION,
+              notes: 'See the release notes for details.',
+              pub_date: process.env.PUB_DATE,
+              platforms: {
+                'windows-x86_64': {
+                  url: process.env.URL,
+                  signature: process.env.SIGNATURE,
+                },
+              },
+            };
+            fs.writeFileSync('src-tauri/target/release/bundle/nsis/latest.json', JSON.stringify(out, null, 2));
+          "
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          target_commitish: ${{ needs.check-version.outputs.ref }}
+          name: v${{ needs.check-version.outputs.version }}
+          fail_on_unmatched_files: true
+          files: |
+            instagram-windows/src-tauri/target/release/bundle/nsis/*.exe
+            instagram-windows/src-tauri/target/release/bundle/nsis/*.sig
+            instagram-windows/src-tauri/target/release/bundle/nsis/latest.json
+          body: |
+            ## What's Changed
+            ${{ steps.changelog.outputs.commits }}
+
+            Tauri / WebView2 build (no bundled Chromium).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

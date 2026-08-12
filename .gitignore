@@ -1,0 +1,7 @@
+/node_modules/
+/dist/
+/src-tauri/target/
+.release-staging/
+.DS_Store
+*.log
+bun.lockb
