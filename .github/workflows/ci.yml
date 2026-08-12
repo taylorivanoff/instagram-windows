@@ -6,22 +6,25 @@ on:
   pull_request:
 
 jobs:
-  build:
+  check:
     runs-on: windows-latest
     steps:
       - name: Checkout app
         uses: actions/checkout@v4
         with:
-          path: instagram-windows
+          path: app
       - name: Checkout tauri-tray-base
         uses: actions/checkout@v4
         with:
           repository: taylorivanoff/tauri-tray-base
           path: tauri-tray-base
-      - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install and build
-        working-directory: instagram-windows
-        run: |
-          bun install
-          bun run build
+      - uses: oven-sh/setup-bun@v2
+        with:
+          working-directory: app
+      - name: Install JS deps
+        working-directory: app
+        run: bun install
+      - name: Cargo check
+        working-directory: app/src-tauri
+        run: cargo check
