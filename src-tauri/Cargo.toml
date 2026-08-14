@@ -1,6 +1,6 @@
 [package]
 name = "instagram-windows"
-version = "1.0.0"
+version = "1.0.1"
 description = "Instagram for Windows (Tauri)"
 authors = ["Taylor Ivanoff"]
 edition = "2021"
