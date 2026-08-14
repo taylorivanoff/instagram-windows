@@ -4,7 +4,9 @@
 [![Downloads](https://img.shields.io/github/downloads/taylorivanoff/instagram-windows/total)](https://github.com/taylorivanoff/instagram-windows/releases)
 [![License](https://img.shields.io/github/license/taylorivanoff/instagram-windows)](LICENSE)
 
-Instagram desktop app for Windows. Loads [instagram.com](https://www.instagram.com) in a native **Tauri / WebView2** shell.
+Instagram desktop app for Windows. Loads [instagram.com](https://www.instagram.com) in a native web shell.
+
+<img width="1282" height="932" alt="{6BEC488B-7431-47FF-A3AF-3CAFDF35FA48}" src="https://github.com/user-attachments/assets/590d13d6-c52a-47fc-ba47-a5135358d055" />
 
 ## Features
 
